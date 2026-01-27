@@ -1,0 +1,6 @@
+#!/bin/bash
+if ! podman image exists opencode-builder; then
+  echo "Building opencode-builder image..."
+  podman build -t opencode-builder -f debugger/Dockerfile .
+fi
+podman run --rm -v $(pwd):/workspaces/opencode:Z opencode-builder bun run typecheck
