@@ -138,9 +138,14 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
         // "Sir, the possibility of successfully navigating this JSON structure is approximately 3,720 to 1!"
         // "Never tell me the odds." -> We assume the key is the tool name.
         const keys = Object.keys(target);
-        if (keys.length === 1) {
+        const nonToolKeys = ["response", "text", "content", "message", "answer"];
+        if (keys.length === 1 && !nonToolKeys.includes(keys[0].toLowerCase())) {
           toolName = keys[0];
           toolArgs = target[keys[0]];
+        } else if (keys.length === 1) {
+          // "It's against my protocols to impersonate a tool call when it's clearly a message, sir."
+          // If it's just a response wrapper, we return false so it gets flushed as text.
+          return false;
         }
       }
 
