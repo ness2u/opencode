@@ -126,6 +126,14 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
           toolName = target.command.name || "bash";
           toolArgs = target.command.arguments || target.command;
         }
+      } else {
+        // Fallback: Check for single-root-key object (e.g. { "todos": [...] })
+        // This handles models that output the tool arguments wrapped in the tool name
+        const keys = Object.keys(target);
+        if (keys.length === 1) {
+          toolName = keys[0];
+          toolArgs = target[keys[0]];
+        }
       }
 
       if (toolName && toolArgs) {
