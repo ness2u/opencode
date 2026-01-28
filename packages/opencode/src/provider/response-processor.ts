@@ -1,3 +1,10 @@
+/**
+ * Response Processor
+ * 
+ * "I am fluent in over six million forms of communication."
+ * This module translates raw, messy text streams from local LLMs into
+ * structured, civilized Tool Call events that the application can understand.
+ */
 import { Log } from "../util/log";
 
 export type ResponseProcessorState = {
@@ -128,7 +135,8 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
         }
       } else {
         // Fallback: Check for single-root-key object (e.g. { "todos": [...] })
-        // This handles models that output the tool arguments wrapped in the tool name
+        // "Sir, the possibility of successfully navigating this JSON structure is approximately 3,720 to 1!"
+        // "Never tell me the odds." -> We assume the key is the tool name.
         const keys = Object.keys(target);
         if (keys.length === 1) {
           toolName = keys[0];
@@ -137,6 +145,7 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
       }
 
       if (toolName && toolArgs) {
+        // "Thank the maker!" - The coercion was successful.
         ctx.logger.info("coerced_tool_call", { tool: toolName });
         const toolChunk = {
           ...json,
