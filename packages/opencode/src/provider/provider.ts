@@ -988,6 +988,13 @@ export namespace Provider {
         // Preserve custom fetch if it exists, wrap it with timeout logic
         const fetchFn = customFetch ?? fetch
         const opts = init ?? {}
+        
+        const l = log.clone().tag("service", "provider.fetch")
+        const sanitizedOpts = { ...opts, headers: { ...opts.headers } }
+        if (sanitizedOpts.headers && (sanitizedOpts.headers as any)["Authorization"]) {
+           (sanitizedOpts.headers as any)["Authorization"] = "Bearer [REDACTED]"
+        }
+        l.info("fetch: CALL", { providerID: model.providerID, method: opts.method, url: input.toString(), options: sanitizedOpts })
 
         if (options["timeout"] !== undefined && options["timeout"] !== null) {
           const signals: AbortSignal[] = []
@@ -1022,7 +1029,11 @@ export namespace Provider {
           // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
           timeout: false,
         }).then(async (response: Response) => {
-          const l = log.clone().tag("service", "provider.fetch")
+          l.info("fetch: RESPONSE", { 
+            status: response.status, 
+            contentType: response.headers.get("content-type"),
+            hasBody: !!response.body 
+          })
 
           if (shouldProcessResponse(response, model, options)) {
             return processStream(response, model, l)

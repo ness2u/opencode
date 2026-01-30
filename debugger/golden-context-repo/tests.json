@@ -1,0 +1,18 @@
+[
+  {
+    "id": "list_files",
+    "description": "List files",
+    "prompt": "list the files and tell me the name of the readme file. DO NOT ASK QUESTIONS. Just output the name.",
+    "expect": {
+      "output_contains": ["README.md"]
+    }
+  },
+  {
+    "id": "read_file",
+    "description": "Read file",
+    "prompt": "read src/index.ts and tell me the first line of the file. DO NOT ASK QUESTIONS. Just output the line.",
+    "expect": {
+      "output_contains": ["import yargs"]
+    }
+  }
+]

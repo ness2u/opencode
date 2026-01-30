@@ -31,15 +31,30 @@ export function shouldProcessResponse(
   options: any
 ): boolean {
   const contentType = response.headers.get("content-type");
-  return !!(
+  const baseURL = (options["baseURL"] as string) || "";
+  const providerID = model.providerID || "";
+  
+  Log.Default.info("shouldProcessResponse: CHECK", { providerID, baseURL, contentType });
+
+  const should = !!(
     response.body &&
     contentType?.includes("text/event-stream") &&
-    (model.providerID.toLowerCase().includes("litellm") ||
+    (providerID.toLowerCase().includes("litellm") ||
+      providerID.toLowerCase().includes("local") ||
       model.api.id.toLowerCase().includes("litellm") ||
       ((model.api.npm === "@ai-sdk/openai-compatible" ||
         model.api.npm === "@ai-sdk/openai") &&
-        (options["baseURL"] as string)?.includes("localhost")))
+        (baseURL.includes("localhost") ||
+          baseURL.includes("127.0.0.1") ||
+          baseURL.includes("100.222.0.")))
+    )
   );
+  
+  if (should) {
+    Log.Default.info("shouldProcessResponse: YES", { providerID, baseURL });
+  }
+
+  return should;
 }
 
 export type ProcessingContext = {
@@ -119,39 +134,50 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
         target.args ||
         target.input;
 
-      if (name && args) {
-        toolName = name;
+      const knownTools = ["bash", "read", "write", "edit", "list", "glob", "grep", "webfetch", "task", "todowrite", "todoread", "websearch"];
+      const nonToolKeys = ["response", "text", "content", "message", "answer", "thought", "reasoning"];
+
+      if (name && args && typeof name === "string" && knownTools.includes(name.toLowerCase())) {
+        toolName = name.toLowerCase();
         toolArgs = args;
-      } else if (target.subagent_type) {
-        toolName = "task";
-        toolArgs = target;
-      } else if (target.command) {
-        if (typeof target.command === "string") {
-          toolName = "bash";
-          toolArgs = { command: target.command };
-        } else if (typeof target.command === "object") {
-          toolName = target.command.name || "bash";
-          toolArgs = target.command.arguments || target.command;
-        }
       } else {
-        // Fallback: Check for single-root-key object (e.g. { "todos": [...] })
-        // "Sir, the possibility of successfully navigating this JSON structure is approximately 3,720 to 1!"
-        // "Never tell me the odds." -> We assume the key is the tool name.
-        const keys = Object.keys(target);
-        const nonToolKeys = ["response", "text", "content", "message", "answer"];
-        if (keys.length === 1 && !nonToolKeys.includes(keys[0].toLowerCase())) {
-          toolName = keys[0];
-          toolArgs = target[keys[0]];
+        // Fallback: Check for known parameter keys in the root object
+        const keys = Object.keys(target).map(k => k.toLowerCase());
+        
+        if (keys.includes("filepath") || keys.includes("path")) {
+          toolName = "read";
+          toolArgs = target;
+        } else if (keys.includes("command")) {
+          toolName = "bash";
+          toolArgs = target;
         } else if (keys.length === 1) {
-          // "It's against my protocols to impersonate a tool call when it's clearly a message, sir."
-          // If it's just a response wrapper, we return false so it gets flushed as text.
-          return false;
+          const key = Object.keys(target)[0];
+          const lowerKey = key.toLowerCase();
+          if (knownTools.includes(lowerKey)) {
+            toolName = lowerKey;
+            toolArgs = target[key];
+          } else if (nonToolKeys.includes(lowerKey)) {
+             const value = target[key];
+             const textContent = typeof value === "string" ? value : JSON.stringify(value);
+             ctx.logger.info("coerced_text_content", { key });
+             const textChunk = {
+               ...json,
+               choices: [{ ...json.choices?.[0], delta: { content: textContent } }],
+             };
+             ctx.controller.enqueue(ctx.encoder.encode(`data: ${JSON.stringify(textChunk)}\n\n`));
+             ctx.state.isBufferingJson = false;
+             ctx.state.potentialToolJson = "";
+             ctx.state.wasCoerced = true;
+             return true; 
+          }
         }
       }
 
       if (toolName && toolArgs) {
-        // "Thank the maker!" - The coercion was successful.
-        ctx.logger.info("coerced_tool_call", { tool: toolName });
+        // Generate a fresh ID for each tool call to prevent SDK confusion
+        const currentToolCallId = "call_" + Math.random().toString(36).slice(2, 11);
+        ctx.logger.info("coerced_tool_call", { tool: toolName, id: currentToolCallId });
+        
         const toolChunk = {
           ...json,
           choices: [
@@ -161,7 +187,7 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
                 tool_calls: [
                   {
                     index: 0,
-                    id: ctx.state.toolCallId,
+                    id: currentToolCallId,
                     type: "function",
                     function: {
                       name: toolName,
@@ -204,6 +230,7 @@ export async function processStream(
   model: any,
   logger: Log.Logger
 ): Promise<Response> {
+  logger.info("processStream: START", { providerID: model.providerID });
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();

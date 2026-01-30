@@ -1,0 +1,8 @@
+#!/bin/bash
+# Convenient helper to run the LOCAL development opencode against the CURRENT directory.
+# Uses 'bun run dev' to ensure all source changes are reflected.
+
+OPENCODE_DIR="/home/ness/git/github/opencode/packages/opencode"
+TARGET_DIR="$(pwd)"
+
+(cd "$OPENCODE_DIR" && bun run dev -- "$TARGET_DIR" "$@")
