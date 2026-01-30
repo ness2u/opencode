@@ -38,6 +38,83 @@ function setupEnv() {
     fs.rmSync(TEST_ENV_PATH, { recursive: true, force: true });
   }
   fs.cpSync(GOLDEN_REPO_SRC, TEST_ENV_PATH, { recursive: true });
+
+  // Copy local configuration to test environment
+  const localConfigDir = path.resolve(OPENCODE_DIR, "../..", ".opencode");
+  const testConfigDir = path.join(TEST_ENV_PATH, ".opencode");
+  
+  if (!fs.existsSync(testConfigDir)) {
+    fs.mkdirSync(testConfigDir, { recursive: true });
+  }
+
+  const configFiles = ["opencode.json", "opencode.jsonc"];
+  let configCopied = false;
+
+  for (const file of configFiles) {
+    const srcPath = path.join(localConfigDir, file);
+    if (fs.existsSync(srcPath)) {
+      console.log(`   📄 Copying config: ${srcPath}`);
+      fs.copyFileSync(srcPath, path.join(testConfigDir, "opencode.json"));
+      configCopied = true;
+      break;
+    }
+  }
+
+  if (!configCopied) {
+      console.warn("   ⚠️ No local opencode.json(c) found to copy. Injecting default LiteLLM config.");
+      const config = {
+        provider: {
+          litellm: {
+            name: "LiteLLM",
+            api: "http://localhost:32000/v1",
+            models: {
+              "junior-home": { id: "junior-home" },
+              "sisyphus-home": { id: "sisyphus-home" }
+            }
+          }
+        }
+      };
+      fs.writeFileSync(path.join(testConfigDir, "opencode.json"), JSON.stringify(config, null, 2));
+  } else {
+      // If config copied, check if we need to merge litellm
+      try {
+          const configPath = path.join(testConfigDir, "opencode.json");
+          const configContent = fs.readFileSync(configPath, "utf-8");
+          // Simple check if it's JSONC, if so skip parsing for now to avoid errors, 
+          // but if it's JSON we can try to merge.
+          // Actually, let's just write a separate file or assume the user has it if they have a config.
+          // But since the previous run failed, the copied config clearly DIDN'T have it.
+          // Let's force-inject it for this test environment.
+          
+          // We'll write to a NEW config file if parsing fails, or append if possible.
+          // Easier strategy: Just overwrite for this test context if we know what we need.
+          // But we want to respect other settings.
+          
+          // Let's just create a specific test config that includes litellm
+          const testConfig = {
+            provider: {
+              litellm: {
+                name: "LiteLLM",
+                api: "http://localhost:32000/v1",
+                models: {
+                  "junior-home": { id: "junior-home" },
+                  "sisyphus-home": { id: "sisyphus-home" }
+                }
+              }
+            }
+          };
+          // We can't easily merge JSONC. Let's just write this as opencode.json. 
+          // If opencode.jsonc exists, OpenCode might prioritize it.
+          // Let's rename the copied jsonc to backup and write our own json.
+          if (fs.existsSync(path.join(testConfigDir, "opencode.jsonc"))) {
+             fs.rmSync(path.join(testConfigDir, "opencode.jsonc"));
+          }
+          fs.writeFileSync(path.join(testConfigDir, "opencode.json"), JSON.stringify(testConfig, null, 2));
+          console.log("   💉 Injected LiteLLM configuration for testing.");
+      } catch (e) {
+          console.error("Failed to inject config", e);
+      }
+  }
 }
 
 async function runOpencodeCommand(cmdArgs: string[], check?: (out: string) => boolean): Promise<string> {

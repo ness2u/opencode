@@ -144,7 +144,15 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
         // Fallback: Check for known parameter keys in the root object
         const keys = Object.keys(target).map(k => k.toLowerCase());
         
-        if (keys.includes("filepath") || keys.includes("path")) {
+        if (target.search_terms) {
+            toolName = "websearch";
+            const terms = Array.isArray(target.search_terms) ? target.search_terms.join(" ") : target.search_terms;
+            toolArgs = { query: terms };
+        } else if (target.fetch_urls) {
+            toolName = "webfetch";
+            const urls = Array.isArray(target.fetch_urls) ? target.fetch_urls[0] : target.fetch_urls;
+            toolArgs = { url: urls };
+        } else if (keys.includes("filepath") || keys.includes("path")) {
           toolName = "read";
           toolArgs = target;
         } else if (keys.includes("command")) {
