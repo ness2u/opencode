@@ -98,7 +98,11 @@ function setupEnv() {
                 api: "http://localhost:32000/v1",
                 models: {
                   "junior-home": { id: "junior-home" },
-                  "sisyphus-home": { id: "sisyphus-home" }
+                  "sisyphus-home": { id: "sisyphus-home" },
+                  "architect-home": { id: "architect-home" },
+                  "researcher-home": { id: "researcher-home" },
+                  "qwen-coder": { id: "qwen-coder" },
+                  "qwen3": { id: "qwen3" }
                 }
               }
             }

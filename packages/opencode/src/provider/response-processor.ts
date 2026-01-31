@@ -136,11 +136,74 @@ export function tryCoerceToolCall(ctx: ProcessingContext, json: any): boolean {
 
       const knownTools = ["bash", "read", "write", "edit", "list", "glob", "grep", "webfetch", "task", "todowrite", "todoread", "websearch"];
       const nonToolKeys = ["response", "text", "content", "message", "answer", "thought", "reasoning"];
+      const toolAliases: Record<string, string> = {
+        "ls": "list",
+        "dir": "list",
+        "read_file": "read",
+        "cat": "read",
+        "write_file": "write",
+        "edit_file": "edit",
+        "search": "grep",
+        "find": "grep",
+        "cmd": "bash",
+        "execute": "bash",
+        "run": "bash"
+      };
 
-      if (name && args && typeof name === "string" && knownTools.includes(name.toLowerCase())) {
-        toolName = name.toLowerCase();
-        toolArgs = args;
-      } else {
+      // Helper to normalize arguments
+      const normalizeArgs = (name: string, args: any) => {
+        if (!args) return {};
+        
+        // Handle array arguments (positional)
+        if (Array.isArray(args)) {
+          if (name === "read" && args.length > 0) return { filePath: args[0] };
+          if (name === "list" && args.length > 0) return { path: args[0] };
+          if (name === "write" && args.length > 1) return { filePath: args[0], content: args[1] };
+          if (name === "grep" && args.length > 0) return { pattern: args[0], path: args[1] || "." };
+          return {}; // Fallback for unknown array args
+        }
+
+        // Handle object arguments (alias normalization)
+        if (typeof args === "object") {
+          const newArgs = { ...args };
+          
+          if (name === "read") {
+            if (newArgs.path) { newArgs.filePath = newArgs.path; delete newArgs.path; }
+            if (newArgs.filename) { newArgs.filePath = newArgs.filename; delete newArgs.filename; }
+            if (newArgs.file_path) { newArgs.filePath = newArgs.file_path; delete newArgs.file_path; }
+          }
+          
+          if (name === "write") {
+            if (newArgs.path) { newArgs.filePath = newArgs.path; delete newArgs.path; }
+            if (newArgs.filename) { newArgs.filePath = newArgs.filename; delete newArgs.filename; }
+            if (newArgs.file_path) { newArgs.filePath = newArgs.file_path; delete newArgs.file_path; }
+            if (newArgs.text) { newArgs.content = newArgs.text; delete newArgs.text; }
+            if (newArgs.data) { newArgs.content = newArgs.data; delete newArgs.data; }
+          }
+
+          if (name === "list") {
+             if (newArgs.dir) { newArgs.path = newArgs.dir; delete newArgs.dir; }
+             if (newArgs.directory) { newArgs.path = newArgs.directory; delete newArgs.directory; }
+          }
+          
+          return newArgs;
+        }
+
+        return args;
+      };
+
+      if (name && args && typeof name === "string") {
+        const lowerName = name.toLowerCase();
+        if (knownTools.includes(lowerName)) {
+            toolName = lowerName;
+            toolArgs = normalizeArgs(toolName, args);
+        } else if (toolAliases[lowerName]) {
+            toolName = toolAliases[lowerName];
+            toolArgs = normalizeArgs(toolName, args);
+        }
+      } 
+      
+      if (!toolName) {
         // Fallback: Check for known parameter keys in the root object
         const keys = Object.keys(target).map(k => k.toLowerCase());
         
