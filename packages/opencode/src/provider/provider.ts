@@ -24,7 +24,7 @@ import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
 import { createOpenRouter, type LanguageModelV2 } from "@openrouter/ai-sdk-provider"
-import { createOpenaiCompatible as createGitHubCopilotOpenAICompatible } from "./sdk/openai-compatible/src"
+import { createOpenaiCompatible as createGitHubCopilotOpenAICompatible } from "./sdk/copilot"
 import { createXai } from "@ai-sdk/xai"
 import { createMistral } from "@ai-sdk/mistral"
 import { createGroq } from "@ai-sdk/groq"
@@ -777,7 +777,7 @@ export namespace Provider {
               audio: model.modalities?.output?.includes("audio") ?? existingModel?.capabilities.output.audio ?? false,
               image: model.modalities?.output?.includes("image") ?? existingModel?.capabilities.output.image ?? false,
               video: model.modalities?.output?.includes("video") ?? existingModel?.capabilities.output.video ?? false,
-              pdf: model.modalities?.output?.includes("pdf") ?? existingModel?.capabilities.output.pdf ?? false,
+              pdf: model.modalities?.output?.includes("pdf") ?? false,
             },
             interleaved: model.interleaved ?? false,
           },
@@ -1043,12 +1043,9 @@ export namespace Provider {
         })
       }
 
-      // Special case: google-vertex-anthropic uses a subpath import
-      const bundledKey =
-        model.providerID === "google-vertex-anthropic" ? "@ai-sdk/google-vertex/anthropic" : model.api.npm
-      const bundledFn = BUNDLED_PROVIDERS[bundledKey]
+      const bundledFn = BUNDLED_PROVIDERS[model.api.npm]
       if (bundledFn) {
-        log.info("using bundled provider", { providerID: model.providerID, pkg: bundledKey, optionKeys: Object.keys(options) })
+        log.info("using bundled provider", { providerID: model.providerID, pkg: model.api.npm })
         const loaded = bundledFn({
           name: model.providerID,
           ...options,
