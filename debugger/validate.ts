@@ -47,84 +47,46 @@ function setupEnv() {
     fs.mkdirSync(testConfigDir, { recursive: true });
   }
 
-  const configFiles = ["opencode.json", "opencode.jsonc"];
-  let configCopied = false;
-
-  for (const file of configFiles) {
-    const srcPath = path.join(localConfigDir, file);
-    if (fs.existsSync(srcPath)) {
-      console.log(`   📄 Copying config: ${srcPath}`);
-      fs.copyFileSync(srcPath, path.join(testConfigDir, "opencode.json"));
-      configCopied = true;
-      break;
-    }
-  }
-
-  if (!configCopied) {
-      console.warn("   ⚠️ No local opencode.json(c) found to copy. Injecting default LiteLLM config.");
-      const config = {
-        provider: {
-          litellm: {
-            name: "LiteLLM",
-            api: "http://localhost:32000/v1",
-            models: {
-              "junior-home": { id: "junior-home" },
-              "sisyphus-home": { id: "sisyphus-home" }
-            }
-          }
+  // Inject LiteLLM config that includes all known local models from the cortex cluster
+  const testConfig = {
+    provider: {
+      litellm: {
+        npm: "@ai-sdk/openai-compatible",
+        options: {
+          baseURL: "http://localhost:32000/v1"
+        },
+        models: {
+          // Local Brains
+          "junior-home": { id: "junior-home" },
+          "sisyphus-home": { id: "sisyphus-home" },
+          "architect-home": { id: "architect-home" },
+          "researcher-home": { id: "researcher-home" },
+          
+          // Cortex Mappings
+          "gpt-oss": { id: "gpt-oss" },
+          "qwen3": { id: "qwen3-30b" },
+          "qwen-coder": { id: "qwen-coder" },
+          "mistral-large": { id: "mistral-large" },
+          "qwen3-small": { id: "qwen3-small" },
+          "safeguard": { id: "safeguard" }
         }
-      };
-      fs.writeFileSync(path.join(testConfigDir, "opencode.json"), JSON.stringify(config, null, 2));
-  } else {
-      // If config copied, check if we need to merge litellm
-      try {
-          const configPath = path.join(testConfigDir, "opencode.json");
-          const configContent = fs.readFileSync(configPath, "utf-8");
-          // Simple check if it's JSONC, if so skip parsing for now to avoid errors, 
-          // but if it's JSON we can try to merge.
-          // Actually, let's just write a separate file or assume the user has it if they have a config.
-          // But since the previous run failed, the copied config clearly DIDN'T have it.
-          // Let's force-inject it for this test environment.
-          
-          // We'll write to a NEW config file if parsing fails, or append if possible.
-          // Easier strategy: Just overwrite for this test context if we know what we need.
-          // But we want to respect other settings.
-          
-          // Let's just create a specific test config that includes litellm
-          const testConfig = {
-            provider: {
-              litellm: {
-                name: "LiteLLM",
-                api: "http://localhost:32000/v1",
-                models: {
-                  "junior-home": { id: "junior-home" },
-                  "sisyphus-home": { id: "sisyphus-home" },
-                  "architect-home": { id: "architect-home" },
-                  "researcher-home": { id: "researcher-home" },
-                  "qwen-coder": { id: "qwen-coder" },
-                  "qwen3": { id: "qwen3" }
-                }
-              }
-            }
-          };
-          // We can't easily merge JSONC. Let's just write this as opencode.json. 
-          // If opencode.jsonc exists, OpenCode might prioritize it.
-          // Let's rename the copied jsonc to backup and write our own json.
-          if (fs.existsSync(path.join(testConfigDir, "opencode.jsonc"))) {
-             fs.rmSync(path.join(testConfigDir, "opencode.jsonc"));
-          }
-          fs.writeFileSync(path.join(testConfigDir, "opencode.json"), JSON.stringify(testConfig, null, 2));
-          console.log("   💉 Injected LiteLLM configuration for testing.");
-      } catch (e) {
-          console.error("Failed to inject config", e);
       }
-  }
+    }
+  };
+
+  fs.writeFileSync(path.join(testConfigDir, "opencode.json"), JSON.stringify(testConfig, null, 2));
+  console.log("   💉 Injected A1P0 LiteLLM configuration.");
+  
+  return TEST_ENV_PATH;
 }
 
 async function runOpencodeCommand(cmdArgs: string[], check?: (out: string) => boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     // We use the 'dev' script from packages/opencode/package.json
     const finalArgs = ["run", "--cwd", OPENCODE_DIR, "dev", "--", ...cmdArgs];
+    
+    // Print the exact command for debugging/repro
+    console.log(`$ bun ${finalArgs.join(" ")}`);
     
     const cp = spawn("bun", finalArgs, {
       cwd: OPENCODE_DIR, 
@@ -181,16 +143,16 @@ async function runOpencodeCommand(cmdArgs: string[], check?: (out: string) => bo
 
 // --- Main Runner ---
 
-async function runTest(test: TestCase) {
+async function runTest(test: TestCase, testEnvDir: string, modelName: string) {
   console.log(`\n🔹 [${test.id}] ${test.description}`);
   
-  if (!model) {
+  if (!modelName) {
     console.log("   ⏭️  Skipping (No model specified. Use --model <name>)");
     return;
   }
 
   const prompt = test.prompt;
-  const args = ["run", prompt, "--model", model];
+  const args = ["run", prompt, "--model", modelName];
 
   try {
     const output = await runOpencodeCommand(args, (out) => {
@@ -214,7 +176,7 @@ async function runTest(test: TestCase) {
     }
 
     if (test.expect?.file_exists) {
-      const filePath = path.join(TEST_ENV_PATH, test.expect.file_exists);
+      const filePath = path.join(testEnvDir, test.expect.file_exists);
       if (fs.existsSync(filePath)) {
         console.log(`   ✅ File exists: ${test.expect.file_exists}`);
       } else {
@@ -225,29 +187,51 @@ async function runTest(test: TestCase) {
 
   } catch (e) {
     console.error(`   💥 Error executing test:`, e);
+    throw e; // Re-throw to count as failure
   }
 }
 
 async function main() {
-  console.log("🚀 Starting Validation Suite");
+  console.log(`
+  █████╗  ██╗██████╗  ██████╗ 
+ ██╔══██╗███║██╔══██╗██╔═████╗
+ ███████║╚██║██████╔╝██║██╔██║
+ ██╔══██║ ██║██╔═══╝ ████╔╝██║
+ ██║  ██║ ██║██║     ╚██████╔╝
+ ╚═╝  ╚═╝ ╚═╝╚═╝      ╚═════╝ 
+    A1P0 BENCHMARKING SUITE
+ "Mixmashmush of questionable meat"
+  `); // c3p0's rhaspberry-pi of a cousin.
+
   if (!fs.existsSync(TESTS_FILE)) {
     console.error("No tests.json found in golden-context-repo");
     process.exit(1);
   }
 
+  if (!model) {
+     model = "litellm/junior-home"; 
+     console.log(`⚠️ No model specified, defaulting to ${model}`);
+  }
+  
+  console.log(`🚀 Starting Validation Suite against ${model}`);
+  
   const tests: TestCase[] = JSON.parse(fs.readFileSync(TESTS_FILE, "utf-8"));
   console.log(`Found ${tests.length} tests.`);
 
-  setupEnv();
+  const testEnvDir = setupEnv();
 
+  let failed = false;
   for (const test of tests) {
-    await runTest(test);
+    try {
+      await runTest(test, testEnvDir, model);
+    } catch (e) {
+      failed = true;
+    }
   }
 
-  console.log("\n✨ All tests completed.");
-  if (fs.existsSync(TEST_ENV_PATH)) {
-    fs.rmSync(TEST_ENV_PATH, { recursive: true, force: true });
-  }
+  console.log(failed ? "\n❌ Some tests failed." : "\n✨ All tests completed.");
+  
+  process.exit(failed ? 1 : 0);
 }
 
 main();
